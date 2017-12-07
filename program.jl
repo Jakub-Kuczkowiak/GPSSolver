@@ -1,12 +1,12 @@
 setprecision(64)
 
+include("algebra.jl")
+
 data = Array{BigFloat, 2}( [
     234 231 321 213; 
     123 234 352 302; 
     342 413 643 521; 
     354 432 642 523])
-
-@show data[1, :]
 
 # data[1, :] : wektor współrzędnych x satelit
 # data[2, :] : wektor współrzędnych y satelit
@@ -52,7 +52,7 @@ function NewtonMethod(X::Array{BigFloat}, ϵ::BigFloat)
         δ = Jacobian(JacobianArray, X) \ f(X)
         X = X - δ
         if norm(δ) < ϵ
-            return x
+            return X
         end
     end
 end
@@ -60,4 +60,9 @@ end
 x = Array{BigFloat, 1}(3)
 x = Array{BigFloat, 1}([1, 2, 3, 4])
 # [223.905, 61.0486, 413.446, 258.905]
-@show NewtonMethod(Array{BigFloat, 1}([1, 1, 1, 0]), BigFloat("0.0000000000001"));
+result = NewtonMethod(Array{BigFloat, 1}([1, 1, 1, 0]), BigFloat("0.0000000000001"))
+
+#space = getSpaceFromPoints(data[1,:], data[2,:], data[3,:], data[4,:])
+#result2 = reflect(result, space)
+#@show f(result)
+#@show f(result2)
