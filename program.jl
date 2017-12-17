@@ -1,68 +1,122 @@
-setprecision(64)
+setprecision(256)
 
-include("algebra.jl")
+# geneartor testów
+function gen_test(satellites)
+    # wektor [x; y; z; t] - (x, y, z): nasza pozycja, t: błąd zegara
+    X = vcat(normalize(Array{BigFloat}(2 * rand(3) - 1) .^ 3), Array{BigFloat}(randn(1)) .^ 3)
+    data = Array{BigFloat, 2}(4, satellites)
+    for i = 1:satellites
+        v = normalize(Array{BigFloat}(2 * rand(3) - 1) .^ 3)
+        data[:, i] = X + vcat(v, norm(v) / C)
+    end
+    return data, X
+end
 
-data = Array{BigFloat, 2}( [
-    234 231 321 213; 
-    123 234 352 302; 
-    342 413 643 521; 
-    354 432 642 523])
+n = 8 # liczba satelit
 
-# data[1, :] : wektor współrzędnych x satelit
-# data[2, :] : wektor współrzędnych y satelit
-# data[3, :] : wektor współrzędnych z satelit
-# data[4, :] : wektor czasów zegara satelit
+data, solution₁ = gen_test(n)
+
+# data[1, :] : wektor współrzędnych x satelitów
+# data[2, :] : wektor współrzędnych y satelitów
+# data[3, :] : wektor współrzędnych z satelitów
+# data[4, :] : wektor czasów zegara satelitów
 
 # data[:, i] : dane z i-tej satelity
+# solution₁ = poszukiwane rozwiązanie (niekoniecznie jedyne)
 
-C = 1 # dla testów
-
-solution₁ = Array{BigFloat}([BigFloat("3.406027414052647875887849459335517363700416540639706155009830367636869268148760385343e+02"),
-                            BigFloat("2.245621396967134977305526534214474645554267237451765234641071107647602855199079076453e+02"),
-                            BigFloat("8.802209804658630277006504596604842085109012249373217265353711792757437615214584985008e+02"),
-                            BigFloat("9.119971653230215237445022093317229764207208762060580107951832552971171535934449105973e+02")])
-
-function f(x::Array{BigFloat})
-    return ((-data .+ x) .^ 2)' * [1, 1, 1, -C]
+# wyświetlanie wyników
+function prnt(x::Array{BigFloat}, fx::Array{BigFloat})
+    @printf "x - sol: [%.4e, %.4e, %.4e, %.4e]\tf(x): [%.4e, %.4e, %.4e, %.4e]\n" x[1] x[2] x[3] x[4] fx[1] fx[2] fx[3] fx[4]
 end
 
-JacobianArray = Array{Function, 2}(4, 4)
+# Funkcja F jak w sprawozdaniu
+# rozważamy dane tylko z 4 pierwszych satelitów
+function f4(x::Array{BigFloat})
+    return ((-data[:, 1:4] .+ x) .^ 2)' * [1, 1, 1, -C*C]
+end
 
+
+# Funkcja F jak w sprawozdaniu
+# bierze pod uwagę dane ze wszystkich satelitów
+function f(x::Array{BigFloat})
+    return ((-data .+ x) .^ 2)' * [1, 1, 1, -C*C]
+end
+
+# Jakobian jak w sprawozdaniu
+# dla 4 pierwszych satelitów
+∂f4arr = Array{Function, 2}(4, 4)
 for i = 1:4
     for j = 1:3
-        JacobianArray[i, j] = function(x) return 2*x[j] - 2*data[j, i] end
+        ∂f4arr[i, j] = function(x) return 2*x[j] - 2*data[j, i] end
     end
-    JacobianArray[i, 4] = function(x) return 2*C*data[4, i] - 2*C*x[4] end
+    ∂f4arr[i, 4] = function(x) return 2*C*C*data[4, i] - 2*C*C*x[4] end
 end
 
-function Jacobian(JacobianArray::Array{Function, 2}, X::Array{BigFloat})
-    sol = Array{BigFloat, 2}(4, 4)
-    for i = 1:4
-        for j = 1:4
-            sol[i, j] = JacobianArray[i, j](X)
-        end
-    end
-    return sol
+function ∂f4(x::Array{BigFloat})
+    return map((f) -> f(x), ∂f4arr)
 end
 
-function NewtonMethod(X::Array{BigFloat}, ϵ::BigFloat)
-    iteration_count = 1
-    while true 
-        @show X - solution₁
-        δ = Jacobian(JacobianArray, X) \ f(X)
-        X = X - δ
-        if norm(δ) < ϵ
-            return X
-        end
+
+# Jakobian jak w sprawozdaniu
+# dla wszystkich satelitów
+∂farr = Array{Function, 2}(n, 4)
+for i = 1:n
+    for j = 1:3
+        ∂farr[i, j] = function(x) return 2*x[j] - 2*data[j, i] end
+    end
+    ∂farr[i, 4] = function(x) return 2*C*C*data[4, i] - 2*C*C*x[4] end
+end
+
+function ∂f(x::Array{BigFloat})
+    return map((f) -> f(x), ∂farr)
+end
+
+# Metoda Newtona - Rhapsona, klasyczna: dla 4 satelitów
+function NewtonMethod(f, ∂f, ϵ; x=Array{BigFloat}([0, 0, 0, 0]), max_iter=1000, log=true, solution=solution₁)
+    i = 0
+    while norm(f(x)) > ϵ && i < max_iter
+        δ = ∂f(x) \ f(x)
+        x = x - δ
+        i += 1
+        if log prnt(abs.(x - solution), abs.(f(x))) end
+    end
+    return x
+end
+
+# ważona metoda Newtona - Rhapsona: dla dowolnej liczby satelitów
+function NewtonMethod(f, ∂f, ϵ; x=Array{BigFloat}([0, 0, 0, 0]), max_iter=1000, log=true)
+    i = 0
+    while norm(f(x)) > ϵ && i < max_iter
+        δ = (∂f(x)' * ∂f(x)) \ ∂f(x)' * f(x)
+        x = x - δ
+        i += 1
+        if log prnt(abs.(x - solution₁), abs.(f(x))) end
+    end
+    return x
+end
+
+# Metoda najmniejszych kwadratów
+function S(x::Array{BigFloat})
+    return [sum(4 * f(x) .* (x[i] - data[i, :])) for i = 1:4] .* [1, 1, 1, -C*C]
+end
+
+∂Sarr = Array{Function, 2}(4, 4)
+for i = 1:4
+    for j = 1:4
+        ∂Sarr[i, j] = (i == 4 || j == 4) ? 
+            function(x) return - C * C * 8 * sum((x[j] - data[j, :]) .* (x[i] - data[i, :])) end :
+            function(x) return 8 * sum((x[j] - data[j, :]) .* (x[i] - data[i, :])) end
+
     end
 end
 
-x = Array{BigFloat, 1}(3)
-x = Array{BigFloat, 1}([1, 2, 3, 4])
-# [223.905, 61.0486, 413.446, 258.905]
-result = NewtonMethod(Array{BigFloat, 1}([1, 1, 1, 0]), BigFloat("0.0000000000001"))
+for i = 1:3
+    ∂Sarr[i, i] = function(x) return 4 * sum(f(x) + (2 * (data[i, :] - x[i]) .* (data[i, :] - x[i]))) end
+end
 
-#space = getSpaceFromPoints(data[1,:], data[2,:], data[3,:], data[4,:])
-#result2 = reflect(result, space)
-#@show f(result)
-#@show f(result2)
+∂Sarr[4, 4] = function(x) return - 4 * C * C * sum(f(x) - (2 * C * C * (data[4, :] - x[4]) .* (data[4, :] - x[4]))) end
+
+# Jakobian funkcji błędu S
+function ∂S(x::Array{BigFloat})
+    return map((f) -> f(x), ∂Sarr)
+end
